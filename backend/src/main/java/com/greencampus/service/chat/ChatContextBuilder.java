@@ -2,95 +2,124 @@ package com.greencampus.service.chat;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.greencampus.dto.FreeRoomDTO;
 import com.greencampus.dto.RoomDetailDTO;
-import com.greencampus.dto.RoomListDTO;
-import com.greencampus.dto.SessionDTO;
 import com.greencampus.dto.TicketDTO;
-import com.greencampus.model.enums.DayOfWeekEnum;
+import com.greencampus.model.AuditLog;
+import com.greencampus.model.enums.UserRole;
 import com.greencampus.security.AuthenticatedUser;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 
 import java.time.LocalDateTime;
-import java.time.LocalTime;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 
 @Component
 @RequiredArgsConstructor
 public class ChatContextBuilder {
 
-    private static final Pattern ROOM_CODE_PATTERN = Pattern.compile("\\b([A-Z]{1,5}-?[A-Z]?\\d{1,3}|\\d{1,4})\\b");
-
     private final ChatDataAdapter chatDataAdapter;
     private final ObjectMapper objectMapper;
+    private final QueryClassifier queryClassifier;
 
     public ChatContextResult build(String question, AuthenticatedUser user) {
-        String intent = detectIntent(question);
+        return build(question, user, queryClassifier.classify(question));
+    }
+
+    public ChatContextResult build(String question, AuthenticatedUser user, ChatIntent intent) {
         Map<String, Object> context = new LinkedHashMap<>();
-        context.put("timeNow", LocalDateTime.now().toString());
-        context.put("userRole", user != null ? user.role().name() : null);
-        context.put("questionIntent", intent);
+        context.put("now", LocalDateTime.now().toString());
+        context.put("role", user != null ? user.role().name() : null);
+        context.put("intent", intent.name());
 
         boolean hasFacts = false;
+        String roomHint = queryClassifier.extractRoomHint(question);
+        Long roomId = null;
 
-        String roomHint = extractRoomHint(question);
         if (roomHint != null) {
-            Optional<RoomDetailDTO> roomDetail = chatDataAdapter.getRoomByCodeOrId(roomHint);
-            if (roomDetail.isPresent()) {
-                context.put("roomDetail", summarizeRoomDetail(roomDetail.get()));
-                context.put("roomAssets", summarizeAssets(roomDetail.get()));
-                context.put("roomSessions", summarizeSessions(chatDataAdapter.getRoomSessions(roomDetail.get().getId()), 6));
-                context.put("roomTickets", summarizeTickets(chatDataAdapter.getTickets(roomDetail.get().getId()), 6));
+            context.put("requestedRoom", roomHint);
+            Optional<RoomDetailDTO> resolved = chatDataAdapter.getRoomByCodeOrId(roomHint);
+            if (resolved.isPresent()) {
+                RoomDetailDTO room = resolved.get();
+                roomId = room.getId();
+                context.put("resolvedRoom", summarizeResolvedRoom(room));
                 hasFacts = true;
             }
         }
 
-        if ("availability".equals(intent)) {
-            List<RoomListDTO> available = chatDataAdapter.searchAvailableRooms(null, null);
-            context.put("availableRooms", summarizeRooms(available, 12));
-            hasFacts = hasFacts || !available.isEmpty();
+        if (roomId != null) {
+            if (intent == ChatIntent.ROOM_STATUS || intent == ChatIntent.ROOM_AVAILABILITY
+                    || intent == ChatIntent.UNKNOWN) {
+                Map<String, Object> status = chatDataAdapter.getRoomOperationalStatus(roomId);
+                Map<String, Object> availability = stripBookingOwnerForNonAdmin(
+                        chatDataAdapter.getRoomAvailabilityOrIdle(roomId, LocalDateTime.now()),
+                        user);
+                context.put("roomOperationalStatus", status);
+                context.put("roomAvailability", availability);
+                hasFacts = true;
+            }
 
-            try {
-                DayOfWeekEnum day = DayOfWeekEnum.valueOf(java.time.LocalDate.now().getDayOfWeek().name());
-                LocalTime now = LocalTime.now();
-                List<FreeRoomDTO> freeRooms = chatDataAdapter.suggestFreeRooms(day, now, now.plusHours(1));
-                context.put("freeRoomSuggestions", summarizeFreeRooms(freeRooms, 8));
-                hasFacts = hasFacts || !freeRooms.isEmpty();
-            } catch (Exception ignored) {
-                context.put("freeRoomSuggestions", List.of());
+            if (intent == ChatIntent.ROOM_EQUIPMENT || intent == ChatIntent.UNKNOWN) {
+                context.put("equipmentSummary", chatDataAdapter.getRoomEquipmentSummary(roomId));
+                hasFacts = true;
+            }
+
+            if (intent == ChatIntent.ROOM_CAPACITY || intent == ChatIntent.UNKNOWN) {
+                Object resolvedRoom = context.get("resolvedRoom");
+                if (resolvedRoom != null) {
+                    context.put("capacitySummary", resolvedRoom);
+                    hasFacts = true;
+                }
             }
         }
 
-        if ("assets".equals(intent)) {
-            List<RoomListDTO> rooms = chatDataAdapter.listRooms(null);
-            context.put("assetsSummary", summarizeAssetHealth(rooms, 15));
-            hasFacts = hasFacts || !rooms.isEmpty();
-        }
-
-        if ("tickets".equals(intent)) {
-            List<TicketDTO> tickets = chatDataAdapter.getTickets(null);
-            context.put("ticketsSummary", summarizeTickets(tickets, 20));
-            hasFacts = hasFacts || !tickets.isEmpty();
-        }
-
-        if ("general_policy".equals(intent)) {
-            context.put("policySummary", chatDataAdapter.getPoliciesSummary());
+        if (intent == ChatIntent.ROOM_SEARCH) {
+            Map<String, Object> summary = chatDataAdapter.getRoomsSummary();
+            context.put("roomsSummary", summary);
+            context.put("roomCount", summary.get("totalCount"));
+            context.put("roomsTotalCount", summary.get("totalCount"));
+            context.put("roomSearchResults", summary.get("rooms"));
             hasFacts = true;
         }
 
-        if (!hasFacts) {
-            // Keep compact fallback context for strict answers.
-            context.put("rooms", summarizeRooms(chatDataAdapter.listRooms(null), 8));
-            context.put("ticketsSummary", summarizeTickets(chatDataAdapter.getTickets(null), 8));
-            hasFacts = !((List<?>) context.get("rooms")).isEmpty() || !((List<?>) context.get("ticketsSummary")).isEmpty();
+        if (intent == ChatIntent.UNKNOWN) {
+            Map<String, Object> summary = chatDataAdapter.getRoomsSummary();
+            context.put("roomsSummary", summary);
+            context.put("roomCount", summary.get("totalCount"));
+            context.put("roomsTotalCount", summary.get("totalCount"));
+            context.put("roomSearchResults", summary.get("rooms"));
+            hasFacts = true;
+        }
+
+        if (intent == ChatIntent.TICKETS && user != null && canSeeTickets(user.role())) {
+            if (roomId != null) {
+                // room-specific tickets
+                List<TicketDTO> tickets = chatDataAdapter.getTicketsForRoom(roomId);
+                context.put("ticketsSummary", summarizeTickets(tickets, 25));
+                hasFacts = hasFacts || !tickets.isEmpty();
+            } else {
+                // global ticket query (e.g. "how many open tickets?")
+                List<Map<String, Object>> all = chatDataAdapter.getAllTicketsSummary(50);
+                context.put("ticketsSummary", all);
+                context.put("ticketsTotalCount", all.size());
+                hasFacts = hasFacts || !all.isEmpty();
+            }
+        }
+
+        if (intent == ChatIntent.BOOKING_OWNER && user != null && canSeeBookingOwner(user.role()) && roomId != null) {
+            Optional<Map<String, Object>> owner = chatDataAdapter.getBookingOwnerForRoom(roomId, LocalDateTime.now());
+            owner.ifPresent(o -> context.put("bookingOwner", o));
+            hasFacts = hasFacts || owner.isPresent();
+        }
+
+        if (intent == ChatIntent.AUDIT_LOGS && user != null && user.role() == UserRole.ADMIN) {
+            List<AuditLog> logs = chatDataAdapter.getAuditLogs(null, null, null, 5);
+            List<Map<String, Object>> summary = summarizeAuditLogs(logs);
+            context.put("auditLogs", summary);
+            hasFacts = hasFacts || !summary.isEmpty();
         }
 
         String contextJson;
@@ -103,80 +132,35 @@ public class ChatContextBuilder {
         return new ChatContextResult(context, contextJson, hasFacts);
     }
 
-    private String detectIntent(String question) {
-        String q = question == null ? "" : question.toLowerCase(Locale.ROOT);
-        if (q.matches(".*(available|free|disponibil|slot|demain|tomorrow|today|date|time).*")) {
-            return "availability";
-        }
-        if (q.matches(".*(pc|pcs|projector|projecteur|equipment|broken|cass[ée]|panne).*")) {
-            return "assets";
-        }
-        if (q.matches(".*(ticket|incident|maintenance).*")) {
-            return "tickets";
-        }
-        if (q.matches(".*(how|policy|rule|permissions|role).*")) {
-            return "general_policy";
-        }
-        if (extractRoomHint(question) != null) {
-            return "room_detail";
-        }
-        return "unknown";
+    private boolean canSeeTickets(UserRole role) {
+        return role == UserRole.ADMIN || role == UserRole.TECHNICIAN;
     }
 
-    private String extractRoomHint(String question) {
-        if (question == null) {
-            return null;
-        }
-        Matcher matcher = ROOM_CODE_PATTERN.matcher(question.toUpperCase(Locale.ROOT));
-        while (matcher.find()) {
-            String token = matcher.group(1);
-            if (token != null && !token.isBlank()) {
-                return token;
-            }
-        }
-        return null;
+    private boolean canSeeBookingOwner(UserRole role) {
+        return role == UserRole.ADMIN;
     }
 
-    private List<Map<String, Object>> summarizeRooms(List<RoomListDTO> rooms, int max) {
-        List<Map<String, Object>> out = new ArrayList<>();
-        for (RoomListDTO room : rooms.stream().limit(max).toList()) {
-            out.add(Map.of(
-                    "id", room.getId(),
-                    "code", room.getCode(),
-                    "type", room.getType().name(),
-                    "status", room.getStatus().name(),
-                    "capacity", room.getCapacity(),
-                    "workingPcs", room.getWorkingPcs(),
-                    "brokenPcs", room.getBrokenPcs(),
-                    "projectorStatus", room.getProjectorStatus() == null ? "UNKNOWN" : room.getProjectorStatus().name()));
+    private Map<String, Object> stripBookingOwnerForNonAdmin(Map<String, Object> availability, AuthenticatedUser user) {
+        if (user != null && user.role() == UserRole.ADMIN) {
+            return availability;
         }
-        return out;
+        if (!availability.containsKey("activeSession")) {
+            return availability;
+        }
+        Map<String, Object> filtered = new LinkedHashMap<>(availability);
+        filtered.remove("activeSession");
+        return filtered;
     }
 
-    private Map<String, Object> summarizeRoomDetail(RoomDetailDTO room) {
-        Map<String, Object> out = new LinkedHashMap<>();
-        out.put("id", room.getId());
-        out.put("code", room.getCode());
-        out.put("type", room.getType().name());
-        out.put("status", room.getStatus().name());
-        out.put("capacity", room.getCapacity());
-        out.put("totalTables", room.getTotalTables());
-        out.put("tablesHavePcs", room.isTablesHavePcs());
-        out.put("workingPcs", room.getWorkingPcs());
-        out.put("brokenPcs", room.getBrokenPcs());
-        out.put("projectorStatus", room.getProjectorStatus() == null ? "UNKNOWN" : room.getProjectorStatus().name());
-        out.put("teacherPcStatus", room.getTeacherPcStatus() == null ? "UNKNOWN" : room.getTeacherPcStatus().name());
-        return out;
-    }
-
-    private List<Map<String, Object>> summarizeAssets(RoomDetailDTO room) {
-        List<Map<String, Object>> assets = new ArrayList<>();
-        room.getAssets().stream().limit(40).forEach(a -> assets.add(Map.of(
-                "label", a.getLabel(),
-                "type", a.getType().name(),
-                "status", a.getStatus().name(),
-                "tableIndex", a.getTableIndex() == null ? 0 : a.getTableIndex())));
-        return assets;
+    private Map<String, Object> summarizeResolvedRoom(RoomDetailDTO room) {
+        return Map.of(
+                "id", room.getId(),
+                "code", room.getCode(),
+                "type", room.getType().name(),
+                "status", room.getStatus().name(),
+                "capacity", room.getCapacity(),
+                "totalTables", room.getTotalTables(),
+                "tablesHavePcs", room.isTablesHavePcs());
     }
 
     private List<Map<String, Object>> summarizeTickets(List<TicketDTO> tickets, int max) {
@@ -193,41 +177,16 @@ public class ChatContextBuilder {
         return out;
     }
 
-    private List<Map<String, Object>> summarizeSessions(List<SessionDTO> sessions, int max) {
+    private List<Map<String, Object>> summarizeAuditLogs(List<AuditLog> logs) {
         List<Map<String, Object>> out = new ArrayList<>();
-        for (SessionDTO s : sessions.stream().limit(max).toList()) {
+        for (AuditLog log : logs) {
             out.add(Map.of(
-                    "roomCode", s.getRoomCode(),
-                    "courseName", s.getCourseName(),
-                    "dayOfWeek", s.getDayOfWeek().name(),
-                    "startTime", s.getStartTime(),
-                    "endTime", s.getEndTime()));
-        }
-        return out;
-    }
-
-    private List<Map<String, Object>> summarizeAssetHealth(List<RoomListDTO> rooms, int max) {
-        List<Map<String, Object>> out = new ArrayList<>();
-        for (RoomListDTO room : rooms.stream().limit(max).toList()) {
-            out.add(Map.of(
-                    "roomCode", room.getCode(),
-                    "projectorStatus", room.getProjectorStatus() == null ? "UNKNOWN" : room.getProjectorStatus().name(),
-                    "teacherPcStatus", room.getTeacherPcStatus() == null ? "UNKNOWN" : room.getTeacherPcStatus().name(),
-                    "workingPcs", room.getWorkingPcs(),
-                    "brokenPcs", room.getBrokenPcs()));
-        }
-        return out;
-    }
-
-    private List<Map<String, Object>> summarizeFreeRooms(List<FreeRoomDTO> freeRooms, int max) {
-        List<Map<String, Object>> out = new ArrayList<>();
-        for (FreeRoomDTO free : freeRooms.stream().limit(max).toList()) {
-            out.add(Map.of(
-                    "roomId", free.getRoomId(),
-                    "roomCode", free.getRoomCode(),
-                    "roomType", free.getRoomType(),
-                    "capacity", free.getCapacity(),
-                    "reason", free.getReason()));
+                    "timestamp", log.getEventTimestamp().toString(),
+                    "actor", log.getActorUsername(),
+                    "action", log.getActionType(),
+                    "entityType", log.getEntityType(),
+                    "entityId", log.getEntityId() == null ? 0 : log.getEntityId(),
+                    "summary", log.getSummary() == null ? "" : log.getSummary()));
         }
         return out;
     }

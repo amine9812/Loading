@@ -60,7 +60,12 @@ public class RoomController {
         if (user.role() != UserRole.ADMIN) {
             return ResponseEntity.status(403).body(Map.of("error", "Admin access required"));
         }
-        RoomDetailDTO created = roomService.createRoom(dto);
+        RoomDetailDTO created;
+        try {
+            created = roomService.createRoom(dto);
+        } catch (IllegalArgumentException e) {
+            return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("error", e.getMessage()));
+        }
         auditLogService.logAdminAction(
                 user,
                 "CREATE",
@@ -84,7 +89,11 @@ public class RoomController {
         if (user.role() != UserRole.ADMIN) {
             return ResponseEntity.status(403).body(Map.of("error", "Admin access required"));
         }
-        return ResponseEntity.ok(roomService.updateRoom(id, dto));
+        try {
+            return ResponseEntity.ok(roomService.updateRoom(id, dto));
+        } catch (IllegalArgumentException e) {
+            return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("error", e.getMessage()));
+        }
     }
 
     @DeleteMapping("/{id}")

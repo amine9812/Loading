@@ -28,4 +28,18 @@ class AnswerVerifierTest {
         String answer = "According to the internet, room A1 is best.";
         assertFalse(verifier.isSupportedByContext(answer, context, ChatService.FALLBACK));
     }
+
+    @Test
+    void allowsAccordingToContextPhrasing() {
+        String context = "{\"roomCode\":\"A1\",\"state\":\"IDLE\"}";
+        String answer = "According to the provided context, room A1 is IDLE.";
+        assertTrue(verifier.isSupportedByContext(answer, context, ChatService.FALLBACK));
+    }
+
+    @Test
+    void rejectsTeacherReferenceWhenNotInContext() {
+        String context = "{\"roomCode\":\"A1\",\"state\":\"OCCUPIED\"}";
+        String answer = "Room A1 is occupied by teacher Dr. Martin.";
+        assertFalse(verifier.isSupportedByContext(answer, context, ChatService.FALLBACK));
+    }
 }

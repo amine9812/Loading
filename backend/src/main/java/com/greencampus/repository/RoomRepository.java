@@ -15,16 +15,18 @@ import java.util.Optional;
 public interface RoomRepository extends JpaRepository<Room, Long> {
 
   Optional<Room> findByCode(String code);
+  Optional<Room> findByCodeIgnoreCase(String code);
+  boolean existsByCodeIgnoreCase(String code);
 
   @Query("""
           SELECT DISTINCT r FROM Room r LEFT JOIN FETCH r.assets
-          WHERE (:q IS NULL OR LOWER(r.code) LIKE LOWER(CONCAT('%', :q, '%')))
+          WHERE (:qPattern IS NULL OR LOWER(r.code) LIKE :qPattern)
             AND (:type IS NULL OR r.type = :type)
             AND (:status IS NULL OR r.status = :status)
           ORDER BY r.code
       """)
   List<Room> searchRooms(
-      @Param("q") String q,
+      @Param("qPattern") String qPattern,
       @Param("type") RoomType type,
       @Param("status") RoomStatus status);
 }

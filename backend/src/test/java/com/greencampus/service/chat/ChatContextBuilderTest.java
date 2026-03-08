@@ -1,7 +1,7 @@
 package com.greencampus.service.chat;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.greencampus.dto.RoomListDTO;
+import com.greencampus.dto.RoomDetailDTO;
 import com.greencampus.dto.TicketDTO;
 import com.greencampus.model.enums.RoomStatus;
 import com.greencampus.model.enums.RoomType;
@@ -29,20 +29,24 @@ class ChatContextBuilderTest {
     @BeforeEach
     void setUp() {
         adapter = Mockito.mock(ChatDataAdapter.class);
-        builder = new ChatContextBuilder(adapter, new ObjectMapper());
+        builder = new ChatContextBuilder(adapter, new ObjectMapper(), new QueryClassifier());
 
-        RoomListDTO room = RoomListDTO.builder()
+        RoomDetailDTO room = RoomDetailDTO.builder()
                 .id(1L)
                 .code("A1")
                 .type(RoomType.CLASS)
                 .status(RoomStatus.OPEN)
                 .capacity(40)
+                .totalTables(8)
+                .tablesHavePcs(true)
+                .totalPcs(24)
                 .workingPcs(20)
-                .brokenPcs(1)
+                .brokenPcs(4)
                 .build();
 
         TicketDTO ticket = TicketDTO.builder()
                 .id(10L)
+                .roomId(1L)
                 .roomCode("A1")
                 .title("Projector broken")
                 .priority(TicketPriority.P1)
@@ -50,30 +54,49 @@ class ChatContextBuilderTest {
                 .createdAt(LocalDateTime.now())
                 .build();
 
-        Mockito.when(adapter.listRooms(any())).thenReturn(List.of(room));
-        Mockito.when(adapter.searchAvailableRooms(any(), any())).thenReturn(List.of(room));
-        Mockito.when(adapter.getTickets(any())).thenReturn(List.of(ticket));
-        Mockito.when(adapter.getPoliciesSummary()).thenReturn(Map.of("dataSource", "Internal"));
-        Mockito.when(adapter.getRoomByCodeOrId(anyString())).thenReturn(Optional.empty());
-        Mockito.when(adapter.getOpenTickets(any())).thenReturn(List.of(ticket));
-        Mockito.when(adapter.getSessions()).thenReturn(List.of());
-        Mockito.when(adapter.suggestFreeRooms(any(), any(), any())).thenReturn(List.of());
+        Mockito.when(adapter.getRoomByCodeOrId(eq("A1"))).thenReturn(Optional.of(room));
+        Mockito.when(adapter.getRoomOperationalStatus(eq(1L)))
+                .thenReturn(Map.of("roomCode", "A1", "roomStatus", "OPEN", "operationalState", "OPEN"));
+        Mockito.when(adapter.getRoomEquipmentSummary(eq(1L)))
+                .thenReturn(Map.of("roomCode", "A1", "workingPcs", 20, "brokenPcs", 4, "projectorStatus", "WORKING"));
+        Mockito.when(adapter.getRoomAvailabilityOrIdle(eq(1L), any(LocalDateTime.class)))
+                .thenReturn(Map.of("at", "2026-01-01T10:00:00", "state", "IDLE", "reason", "no active booking/session"));
+        Mockito.when(adapter.getTicketsForRoom(eq(1L))).thenReturn(List.of(ticket));
+        Mockito.when(adapter.searchRoomsAvailability(any(), any())).thenReturn(List.of(Map.of("roomCode", "A1")));
+        Mockito.when(adapter.getAuditLogs(any(), any(), any(), anyInt())).thenReturn(List.of());
     }
 
     @Test
-    void keepsOnlyAllowedKeysAndNoPii() {
+    void staffTicketIntentExcludesTicketsAndBookingOwner() {
         ChatContextResult result = builder.build(
-                "Which rooms are available today?",
-                new AuthenticatedUser("admin", UserRole.ADMIN));
+                "How many open tickets for A1?",
+                new AuthenticatedUser("staff", UserRole.STAFF),
+                ChatIntent.TICKETS);
 
-        assertTrue(result.context().containsKey("timeNow"));
-        assertTrue(result.context().containsKey("userRole"));
-        assertTrue(result.context().containsKey("questionIntent"));
-        assertTrue(result.context().containsKey("availableRooms") || result.context().containsKey("rooms"));
+        assertFalse(result.context().containsKey("ticketsSummary"));
+        assertFalse(result.context().containsKey("bookingOwner"));
+    }
 
-        String json = result.contextJson().toLowerCase();
-        assertFalse(json.contains("password"));
-        assertFalse(json.contains("token"));
-        assertFalse(json.contains("email"));
+    @Test
+    void technicianTicketIntentIncludesTickets() {
+        ChatContextResult result = builder.build(
+                "How many open tickets for A1?",
+                new AuthenticatedUser("tech", UserRole.TECHNICIAN),
+                ChatIntent.TICKETS);
+
+        assertTrue(result.context().containsKey("ticketsSummary"));
+    }
+
+    @Test
+    void roomAvailabilityContextContainsIdleForA1() {
+        ChatContextResult result = builder.build(
+                "Is room A1 idle now?",
+                new AuthenticatedUser("staff", UserRole.STAFF),
+                ChatIntent.ROOM_AVAILABILITY);
+
+        String json = result.contextJson();
+        assertTrue(result.hasFacts());
+        assertTrue(json.contains("\"roomCode\" : \"A1\""));
+        assertTrue(json.contains("\"state\" : \"IDLE\""));
     }
 }

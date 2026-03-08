@@ -15,6 +15,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 
 @Service
 @RequiredArgsConstructor
@@ -28,8 +29,9 @@ public class RoomService {
         @Transactional(readOnly = true)
         public List<RoomListDTO> searchRooms(String q, RoomType type, RoomStatus status,
                         Integer minWorkingPcs, Boolean needsProjector) {
+                String qPattern = (q == null || q.isBlank()) ? null : "%" + q.toLowerCase(Locale.ROOT) + "%";
                 List<Room> rooms = roomRepository.searchRooms(
-                                q != null && q.isBlank() ? null : q,
+                                qPattern,
                                 type,
                                 status);
 
@@ -50,6 +52,7 @@ public class RoomService {
         // ─── Create ───────────────────────────────────────────────────
         @Transactional
         public RoomDetailDTO createRoom(RoomCreateDTO dto) {
+                ensureCodeAvailable(dto.getCode(), null);
                 Room room = Room.builder()
                                 .code(dto.getCode())
                                 .type(dto.getType())
@@ -95,6 +98,7 @@ public class RoomService {
         @Transactional
         public RoomDetailDTO updateRoom(Long id, RoomCreateDTO dto) {
                 Room room = findRoom(id);
+                ensureCodeAvailable(dto.getCode(), id);
 
                 room.setCode(dto.getCode());
                 room.setType(dto.getType());
@@ -160,6 +164,17 @@ public class RoomService {
         private Room findRoom(Long id) {
                 return roomRepository.findById(id)
                                 .orElseThrow(() -> new RuntimeException("Room not found: " + id));
+        }
+
+        private void ensureCodeAvailable(String code, Long currentRoomId) {
+                if (code == null || code.isBlank()) {
+                        throw new IllegalArgumentException("Room code is required");
+                }
+                roomRepository.findByCodeIgnoreCase(code)
+                                .filter(existing -> currentRoomId == null || !existing.getId().equals(currentRoomId))
+                                .ifPresent(existing -> {
+                                        throw new IllegalArgumentException("Room code already exists");
+                                });
         }
 
         private void reconcileTablePcs(Room room, int targetCount, boolean havePcs) {

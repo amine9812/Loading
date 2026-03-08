@@ -30,17 +30,32 @@ A campus room management system built with **Spring Boot 3.4** (backend) and **R
 ### Prerequisites
 - Java 21+
 - Node.js 18+
+- Docker + Docker Compose plugin (recommended for full stack)
 
-### 1. Start Backend (H2 dev mode)
+### 1. Run Full Stack with Docker (recommended)
+```bash
+cd /path/to/Nexus
+export GROQ_API_KEY=[REDACTED]
+export GROQ_MODEL_NAME=llama-3.1-8b-instant   # optional
+docker compose up --build -d
+docker compose ps
+```
+
+Services:
+- Frontend: `http://localhost:5173`
+- Backend: `http://localhost:8080`
+- DB: PostgreSQL on `localhost:5432`
+
+### 2. Start Backend only (H2 dev mode)
 ```bash
 cd backend
 export GROQ_API_KEY=[REDACTED]
-export GROQ_MODEL_NAME=llama3-8b-8192   # optional
+export GROQ_MODEL_NAME=llama-3.1-8b-instant   # optional
 SPRING_PROFILES_ACTIVE=dev ./mvnw spring-boot:run
 ```
 Backend starts on **http://localhost:8080**.
 
-### 2. Start Frontend
+### 3. Start Frontend only
 ```bash
 cd frontend
 npm install
@@ -96,11 +111,24 @@ export GROQ_API_KEY=[REDACTED]
 
 Optional model override:
 ```bash
-export GROQ_MODEL_NAME=llama3-8b-8192
+export GROQ_MODEL_NAME=llama-3.1-8b-instant
 ```
 
 If data is missing from the system context, the assistant returns:
 `Information not available in the system.`
+
+Quick API check:
+```bash
+TOKEN=$(curl -s -X POST http://localhost:8080/api/auth/login \
+  -H 'Content-Type: application/json' \
+  -d '{"username":"admin","password":"admin123"}' \
+  | python -c 'import sys,json; print(json.load(sys.stdin)["token"])')
+
+curl -s -X POST http://localhost:8080/api/chat \
+  -H "Authorization: Bearer $TOKEN" \
+  -H 'Content-Type: application/json' \
+  -d '{"message":"is room A1 idle"}'
+```
 
 ## Testing
 
@@ -143,7 +171,7 @@ backend/
 │   ├── security/       # JWT utilities
 │   └── config/         # WebConfig, DataSeeder
 └── src/main/resources/
-    ├── db/migration/   # Flyway migrations (V1-V6)
+    ├── db/migration/   # Flyway migrations (V1-V8)
     └── application*.yml
 
 frontend/

@@ -40,12 +40,10 @@ public class AuditLog {
     @Column(name = "summary", length = 500)
     private String summary;
 
-    @Lob
-    @Column(name = "before_json")
+    @Column(name = "before_json", columnDefinition = "TEXT")
     private String beforeJson;
 
-    @Lob
-    @Column(name = "after_json")
+    @Column(name = "after_json", columnDefinition = "TEXT")
     private String afterJson;
 
     public AuditLog(String actionType, String entityType, Long entityId, String summary,

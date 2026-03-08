@@ -27,7 +27,7 @@ public class HttpGroqClient implements GroqClient {
         this.restTemplate = restTemplate;
         this.objectMapper = objectMapper;
         this.apiKey = apiKey;
-        this.modelName = (modelName == null || modelName.isBlank()) ? "llama3-8b-8192" : modelName;
+        this.modelName = (modelName == null || modelName.isBlank()) ? "llama-3.1-8b-instant" : modelName;
     }
 
     @Override
@@ -45,8 +45,7 @@ public class HttpGroqClient implements GroqClient {
                 "temperature", 0.1,
                 "max_tokens", 320,
                 "messages", List.of(
-                        Map.of("role", "system", "content", systemMessage),
-                        Map.of("role", "developer", "content", developerMessage),
+                        Map.of("role", "system", "content", systemMessage + "\n\n" + developerMessage),
                         Map.of("role", "user", "content", userMessage)));
 
         HttpEntity<Map<String, Object>> request = new HttpEntity<>(payload, headers);

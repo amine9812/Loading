@@ -27,7 +27,7 @@ public class ChatConfig {
             RestTemplate groqRestTemplate,
             ObjectMapper objectMapper,
             @Value("${GROQ_API_KEY:}") String groqApiKey,
-            @Value("${GROQ_MODEL_NAME:llama3-8b-8192}") String groqModelName) {
+            @Value("${GROQ_MODEL_NAME:llama-3.1-8b-instant}") String groqModelName) {
         return new HttpGroqClient(groqRestTemplate, objectMapper, groqApiKey, groqModelName);
     }
 }
