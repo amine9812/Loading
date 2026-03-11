@@ -1636,3 +1636,5 @@ If you inspect environment files, logs, or deployment configs and find real secr
 - **Role Guard**: Frontend logic that blocks users from pages they are not allowed to access.
 - **Session**: A scheduled class/teaching event in a specific room.
 - **TanStack Query**: A frontend library that manages API data fetching and caching.
+- **chatbot**: a chatbot fully functioning that replies to all messages and uses iam algorithme to give accesss to users depending on their role (ig,admin,tech,staff) and works as a helper
+  
