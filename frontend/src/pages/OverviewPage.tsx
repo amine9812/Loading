@@ -1,4 +1,5 @@
 import { useQuery } from '@tanstack/react-query'
+import { Link } from 'react-router-dom'
 import { fetchHealth, fetchStats } from '../api/client'
 import {
     DoorOpen,
@@ -98,15 +99,15 @@ function OverviewPage() {
     )
 }
 
-function QuickLink({ to, icon: Icon, label, desc, color }: { to: string; icon: any; label: string; desc: string; color: string }) {
+function QuickLink({ to, icon: Icon, label, desc, color }: { to: string; icon: React.ElementType; label: string; desc: string; color: string }) {
     return (
-        <a href={to} className={`block bg-white rounded-xl border border-gray-200 p-5 hover:shadow-md hover:border-${color}-200 transition-all group`}>
+        <Link to={to} className={`block bg-white rounded-xl border border-gray-200 p-5 hover:shadow-md hover:border-${color}-200 transition-all group`}>
             <div className={`w-10 h-10 rounded-xl flex items-center justify-center bg-${color}-50 text-${color}-600 mb-3`}>
                 <Icon className="w-5 h-5" />
             </div>
             <p className="text-sm font-bold text-gray-900 group-hover:text-gray-700">{label}</p>
             <p className="text-xs text-gray-500 mt-0.5">{desc}</p>
-        </a>
+        </Link>
     )
 }
 

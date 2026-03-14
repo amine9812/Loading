@@ -63,7 +63,12 @@ public class TicketController {
         if (user.role() != UserRole.TECHNICIAN && user.role() != UserRole.ADMIN) {
             return ResponseEntity.status(403).body(Map.of("error", "Technician or Admin access required"));
         }
-        TicketStatus status = TicketStatus.valueOf(body.get("status"));
+        TicketStatus status;
+        try {
+            status = TicketStatus.valueOf(body.get("status"));
+        } catch (IllegalArgumentException | NullPointerException e) {
+            return ResponseEntity.badRequest().body(Map.of("error", "Invalid status value"));
+        }
         return ResponseEntity.ok(ticketService.updateTicketStatus(id, status));
     }
 

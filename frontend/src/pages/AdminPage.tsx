@@ -1,11 +1,12 @@
 import { useState } from 'react'
+import { Link } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { fetchRooms, deleteRoom, fetchStats, fetchHealth, clearRoomSessions, fetchAuditLogs } from '../api/client'
 import { getCurrentUser } from '../lib/auth'
 import type { AuditLogEntry } from '../types/audit'
 import type { RoomListItem } from '../types/room'
 import {
-    Settings, DoorOpen, Users, Activity, Trash2, ExternalLink,
+    DoorOpen, Users, Activity, Trash2, ExternalLink,
     Monitor, Ticket, Calendar, Loader2, AlertTriangle, CheckCircle2
 } from 'lucide-react'
 
@@ -141,13 +142,13 @@ export default function AdminPage() {
                                         </td>
                                         <td className="px-5 py-3 text-right">
                                             <div className="flex items-center justify-end gap-1">
-                                                <a
-                                                    href={`/rooms/${r.id}`}
+                                                <Link
+                                                    to={`/rooms/${r.id}`}
                                                     className="p-1.5 rounded-lg hover:bg-campus-50 text-gray-400 hover:text-campus-600 transition-colors"
                                                     title="View"
                                                 >
                                                     <ExternalLink className="w-3.5 h-3.5" />
-                                                </a>
+                                                </Link>
                                                 {isAdmin && (
                                                     <button
                                                         onClick={() => { if (confirm(`Delete room ${r.code}?`)) deleteMut.mutate(r.id) }}
@@ -172,7 +173,7 @@ export default function AdminPage() {
                 <div className="px-5 py-4 border-b border-gray-100 flex items-center gap-2">
                     <Users className="w-4 h-4 text-blue-600" />
                     <h3 className="text-sm font-bold text-gray-900">User Accounts</h3>
-                    <span className="text-xs text-gray-400 ml-auto">Demo accounts</span>
+                    <span className="text-xs text-gray-400 ml-auto">3 accounts</span>
                 </div>
                 <div className="overflow-x-auto">
                     <table className="w-full text-sm">
@@ -181,14 +182,13 @@ export default function AdminPage() {
                                 <th className="px-5 py-3">Username</th>
                                 <th className="px-5 py-3">Display Name</th>
                                 <th className="px-5 py-3">Role</th>
-                                <th className="px-5 py-3">Password</th>
                             </tr>
                         </thead>
                         <tbody className="divide-y divide-gray-100">
                             {[
-                                { user: 'admin', name: 'Admin User', role: 'ADMIN', pw: 'admin123' },
-                                { user: 'tech', name: 'Tech Support', role: 'TECHNICIAN', pw: 'tech123' },
-                                { user: 'staff', name: 'Teaching Staff', role: 'STAFF', pw: 'staff123' },
+                                { user: 'admin', name: 'Admin User', role: 'ADMIN' },
+                                { user: 'tech', name: 'Tech Support', role: 'TECHNICIAN' },
+                                { user: 'staff', name: 'Teaching Staff', role: 'STAFF' },
                             ].map(u => (
                                 <tr key={u.user} className="hover:bg-gray-50 transition-colors">
                                     <td className="px-5 py-3 font-mono font-bold text-gray-900">{u.user}</td>
@@ -198,7 +198,6 @@ export default function AdminPage() {
                                             {u.role}
                                         </span>
                                     </td>
-                                    <td className="px-5 py-3 font-mono text-xs text-gray-400">{u.pw}</td>
                                 </tr>
                             ))}
                         </tbody>

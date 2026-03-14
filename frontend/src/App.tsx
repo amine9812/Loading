@@ -1,4 +1,4 @@
-import { Routes, Route } from 'react-router-dom'
+import { Routes, Route, Navigate } from 'react-router-dom'
 import DashboardLayout from './layouts/DashboardLayout'
 import AuthGuard from './components/AuthGuard'
 import RoleGuard from './components/RoleGuard'
@@ -46,6 +46,7 @@ function App() {
                     />
                 </Route>
             </Route>
+            <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
     )
 }
